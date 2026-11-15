@@ -15,7 +15,8 @@
     "shared/"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import ./test/ts-resolve.mjs --test test/locate.test.mjs"
   },
   "devDependencies": {
     "@getpaseo/plugin": "0.16.0-beta.2",
