@@ -93,8 +93,8 @@ function isInTerminal(target: unknown): boolean {
   return Boolean(element?.closest?.(".xterm"));
 }
 
-/** Calls `onOpen` with the current workspace on Ctrl+Shift+C. Web only; a no-op elsewhere. */
-export function installOpenTerminalShortcut(onOpen: (workspaceId: string) => void): () => void {
+/** Calls `onOpen` with the active tab on Ctrl+Shift+C. Web only; a no-op elsewhere. */
+export function installOpenTerminalShortcut(onOpen: (tab: ActiveTab) => void): () => void {
   if (Platform.OS !== "web") return () => {};
   const listener: DomKeyListener = (event) => {
     if (event.code !== "KeyC" || !event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey) return;
@@ -104,7 +104,7 @@ export function installOpenTerminalShortcut(onOpen: (workspaceId: string) => voi
     if (!workspaceId) return;
     event.preventDefault();
     event.stopPropagation();
-    if (!event.repeat) onOpen(workspaceId);
+    if (!event.repeat) onOpen({ workspaceId, filePath: activeFilePath() });
   };
   window.addEventListener("keydown", listener, true);
   return () => window.removeEventListener("keydown", listener, true);

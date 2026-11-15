@@ -4,7 +4,7 @@ import * as path from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
 import { lineRange, locateRendered } from "../shared/locate";
 
-async function workspaceRoot(paseo: PaseoApi, workspaceId: string): Promise<string> {
+export async function workspaceRoot(paseo: PaseoApi, workspaceId: string): Promise<string> {
   const workspace = await paseo.workspaces.ref(workspaceId).refresh();
   if (!workspace) throw new Error(`워크스페이스를 찾지 못했습니다: ${workspaceId}`);
   return path.resolve(workspace.workspaceDirectory ?? workspace.projectRootPath);

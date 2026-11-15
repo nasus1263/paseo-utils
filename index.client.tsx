@@ -24,8 +24,8 @@ export default function contribute(client: PluginClientContext) {
   }
 
   const removals = [
-    installOpenTerminalShortcut((workspaceId) => {
-      client.rpc(openTerminalRpc, { workspaceId }).catch((error) => {
+    installOpenTerminalShortcut(({ workspaceId, filePath }) => {
+      client.rpc(openTerminalRpc, { workspaceId, path: filePath ?? undefined }).catch((error) => {
         console.error("[paseo-utils] Failed to open terminal", error);
       });
     }),
