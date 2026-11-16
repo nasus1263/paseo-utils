@@ -15,3 +15,7 @@ These shortcuts work on the active tab of the open workspace. Keys match physica
 In a source editor, the selected lines come from the editor. In a rendered view such as a Markdown preview, the selected text is searched in the file, ignoring markup and link targets; repeated text is told apart by how often it appears before the selection. When the text is not found, only the path is copied. While the paseo-doc-ask input box is open, its selected passage counts as the selection.
 
 Paseo has no API for the active tab, so the plugin reads the tab bar. With split panes, it uses the pane last clicked or selected in. A Paseo update that changes the tab bar can break these shortcuts.
+
+## Fast scrolling
+
+Hold Alt and drag with the left mouse button to scroll the area under the pointer at five times the pointer's movement, in the direction of the drag. It works on any scrollable area, including chat timelines, files, and terminals, in the desktop and browser apps. A drag does not click what it started on.

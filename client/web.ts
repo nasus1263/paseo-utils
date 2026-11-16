@@ -14,7 +14,16 @@ interface DomKeyEvent {
   stopPropagation(): void;
 }
 type DomKeyListener = (event: DomKeyEvent) => void;
-type DomPointerListener = (event: { target: unknown }) => void;
+type DomPointerListener = (event: DomPointerEvent) => void;
+interface DomPointerEvent {
+  target: unknown;
+  button: number;
+  altKey: boolean;
+  clientX: number;
+  clientY: number;
+  preventDefault(): void;
+  stopPropagation(): void;
+}
 interface DomNode {
   nodeType: number;
   parentNode: DomNode | null;
@@ -24,6 +33,10 @@ interface DomElement extends DomNode {
   textContent: string | null;
   scrollHeight: number;
   clientHeight: number;
+  scrollWidth: number;
+  clientWidth: number;
+  scrollTop: number;
+  scrollLeft: number;
   style: Record<string, string>;
   getAttribute(name: string): string | null;
   getBoundingClientRect(): { width: number; height: number };
@@ -49,7 +62,9 @@ declare const window: {
   location: { pathname: string; hash: string };
   addEventListener(type: "keydown", listener: DomKeyListener, capture: boolean): void;
   removeEventListener(type: "keydown", listener: DomKeyListener, capture: boolean): void;
-  getComputedStyle(element: DomElement): { overflowY: string };
+  addEventListener(type: "pointerdown" | "pointermove" | "pointerup" | "pointercancel" | "click", listener: DomPointerListener, capture: boolean): void;
+  removeEventListener(type: "pointerdown" | "pointermove" | "pointerup" | "pointercancel" | "click", listener: DomPointerListener, capture: boolean): void;
+  getComputedStyle(element: DomElement): { overflowX: string; overflowY: string; transform: string };
   setTimeout(handler: () => void, ms: number): unknown;
 };
 declare const document: {
@@ -287,4 +302,89 @@ export function showToast(message: string, error = false): void {
   });
   document.body.appendChild(toast);
   window.setTimeout(() => toast.remove(), 2200);
+}
+
+const DRAG_SCROLL_SPEED = 5;
+/** Movement in pixels below which an Alt+drag still counts as a click. */
+const DRAG_THRESHOLD = 3;
+
+function scrolls(overflow: string): boolean {
+  return overflow === "auto" || overflow === "scroll";
+}
+
+/** The nearest ancestor that can scroll, with whether each axis is flipped by an inverted list. */
+function scrollableAt(target: unknown): { element: DomElement; flipX: boolean; flipY: boolean } | null {
+  const start = target as DomElement | null;
+  // xterm draws over its viewport, which is a sibling of the screen.
+  const terminal = start?.closest?.(".xterm")?.querySelector(".xterm-viewport");
+  for (let at: DomElement | null = terminal ?? start; at; at = at.parentElement) {
+    if (typeof at.closest !== "function") continue;
+    const style = window.getComputedStyle(at);
+    const x = scrolls(style.overflowX) && at.scrollWidth > at.clientWidth;
+    const y = scrolls(style.overflowY) && at.scrollHeight > at.clientHeight;
+    if (!x && !y) continue;
+    // React Native Web inverts lists with a negative scale.
+    const matrix = /matrix\(([^)]+)\)/.exec(style.transform)?.[1].split(",").map(Number);
+    return { element: at, flipX: (matrix?.[0] ?? 1) < 0, flipY: (matrix?.[3] ?? 1) < 0 };
+  }
+  return null;
+}
+
+/**
+ * Alt+drag with the primary button scrolls the nearest scrollable area under the pointer at five
+ * times the pointer's movement, in the direction of the drag. Web only; a no-op elsewhere.
+ */
+export function installAltDragScroll(): () => void {
+  if (Platform.OS !== "web") return () => {};
+  let stop: (() => void) | null = null;
+  const down: DomPointerListener = (event) => {
+    if (event.button !== 0 || !event.altKey) return;
+    const target = scrollableAt(event.target);
+    if (!target) return;
+    event.preventDefault();
+    event.stopPropagation();
+    stop?.();
+    const { element, flipX, flipY } = target;
+    let lastX = event.clientX;
+    let lastY = event.clientY;
+    let moved = 0;
+    const cursor = document.body.style.cursor;
+    document.body.style.cursor = "grabbing";
+    const move: DomPointerListener = (next) => {
+      const dx = next.clientX - lastX;
+      const dy = next.clientY - lastY;
+      lastX = next.clientX;
+      lastY = next.clientY;
+      moved += Math.abs(dx) + Math.abs(dy);
+      element.scrollLeft += dx * DRAG_SCROLL_SPEED * (flipX ? -1 : 1);
+      element.scrollTop += dy * DRAG_SCROLL_SPEED * (flipY ? -1 : 1);
+      next.preventDefault();
+    };
+    // A drag must not also click what it started on.
+    const swallowClick: DomPointerListener = (click) => {
+      click.preventDefault();
+      click.stopPropagation();
+    };
+    const up: DomPointerListener = () => {
+      stop?.();
+      if (moved < DRAG_THRESHOLD) return;
+      window.addEventListener("click", swallowClick, true);
+      window.setTimeout(() => window.removeEventListener("click", swallowClick, true), 0);
+    };
+    stop = () => {
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
+      document.body.style.cursor = cursor;
+      stop = null;
+    };
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", up, true);
+  };
+  window.addEventListener("pointerdown", down, true);
+  return () => {
+    window.removeEventListener("pointerdown", down, true);
+    stop?.();
+  };
 }
