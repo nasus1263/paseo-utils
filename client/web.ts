@@ -14,16 +14,20 @@ interface DomKeyEvent {
   stopPropagation(): void;
 }
 type DomKeyListener = (event: DomKeyEvent) => void;
-type DomPointerListener = (event: DomPointerEvent) => void;
-interface DomPointerEvent {
+type DomPointerListener = (event: { target: unknown }) => void;
+interface DomWheelEvent {
   target: unknown;
-  button: number;
   altKey: boolean;
-  clientX: number;
-  clientY: number;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  deltaX: number;
+  deltaY: number;
+  deltaMode: number;
   preventDefault(): void;
   stopPropagation(): void;
 }
+type DomWheelListener = (event: DomWheelEvent) => void;
 interface DomNode {
   nodeType: number;
   parentNode: DomNode | null;
@@ -62,8 +66,8 @@ declare const window: {
   location: { pathname: string; hash: string };
   addEventListener(type: "keydown", listener: DomKeyListener, capture: boolean): void;
   removeEventListener(type: "keydown", listener: DomKeyListener, capture: boolean): void;
-  addEventListener(type: "pointerdown" | "pointermove" | "pointerup" | "pointercancel" | "click", listener: DomPointerListener, capture: boolean): void;
-  removeEventListener(type: "pointerdown" | "pointermove" | "pointerup" | "pointercancel" | "click", listener: DomPointerListener, capture: boolean): void;
+  addEventListener(type: "wheel", listener: DomWheelListener, options: { capture: boolean; passive: boolean }): void;
+  removeEventListener(type: "wheel", listener: DomWheelListener, capture: boolean): void;
   getComputedStyle(element: DomElement): { overflowX: string; overflowY: string; transform: string };
   setTimeout(handler: () => void, ms: number): unknown;
 };
@@ -304,87 +308,57 @@ export function showToast(message: string, error = false): void {
   window.setTimeout(() => toast.remove(), 2200);
 }
 
-const DRAG_SCROLL_SPEED = 5;
-/** Movement in pixels below which an Alt+drag still counts as a click. */
-const DRAG_THRESHOLD = 3;
+const WHEEL_SCROLL_SPEED = 5;
+/** Pixels per wheel line and the share of a page, for wheels that report in lines or pages. */
+const LINE_PIXELS = 16;
 
 function scrolls(overflow: string): boolean {
   return overflow === "auto" || overflow === "scroll";
 }
 
-/** The nearest ancestor that can scroll, with whether each axis is flipped by an inverted list. */
-function scrollableAt(target: unknown): { element: DomElement; flipX: boolean; flipY: boolean } | null {
+/** The nearest ancestor that can scroll along the axis, and whether an inverted list flips it. */
+function scrollableAt(target: unknown, vertical: boolean): { element: DomElement; flip: boolean } | null {
   const start = target as DomElement | null;
-  // xterm draws over its viewport, which is a sibling of the screen.
-  const terminal = start?.closest?.(".xterm")?.querySelector(".xterm-viewport");
-  for (let at: DomElement | null = terminal ?? start; at; at = at.parentElement) {
+  // xterm draws over its viewport, which is a sibling of the screen; never scroll past a terminal.
+  const terminal = start?.closest?.(".xterm");
+  const viewport = terminal?.querySelector(".xterm-viewport");
+  for (let at: DomElement | null = viewport ?? start; at; at = terminal ? null : at.parentElement) {
     if (typeof at.closest !== "function") continue;
     const style = window.getComputedStyle(at);
-    const x = scrolls(style.overflowX) && at.scrollWidth > at.clientWidth;
-    const y = scrolls(style.overflowY) && at.scrollHeight > at.clientHeight;
-    if (!x && !y) continue;
+    const can = vertical
+      ? scrolls(style.overflowY) && at.scrollHeight > at.clientHeight
+      : scrolls(style.overflowX) && at.scrollWidth > at.clientWidth;
+    if (!can) continue;
     // React Native Web inverts lists with a negative scale.
     const matrix = /matrix\(([^)]+)\)/.exec(style.transform)?.[1].split(",").map(Number);
-    return { element: at, flipX: (matrix?.[0] ?? 1) < 0, flipY: (matrix?.[3] ?? 1) < 0 };
+    return { element: at, flip: (matrix?.[vertical ? 3 : 0] ?? 1) < 0 };
   }
   return null;
 }
 
 /**
- * Alt+drag with the primary button scrolls the nearest scrollable area under the pointer at five
- * times the pointer's movement, in the direction of the drag. Web only; a no-op elsewhere.
+ * Alt+wheel scrolls the nearest scrollable area under the pointer five times as far as the wheel
+ * normally would. Web only; a no-op elsewhere.
  */
-export function installAltDragScroll(): () => void {
+export function installAltWheelScroll(): () => void {
   if (Platform.OS !== "web") return () => {};
-  let stop: (() => void) | null = null;
-  const down: DomPointerListener = (event) => {
-    if (event.button !== 0 || !event.altKey) return;
-    const target = scrollableAt(event.target);
+  const wheel: DomWheelListener = (event) => {
+    if (!event.altKey || event.ctrlKey || event.metaKey) return;
+    // Shift turns a vertical wheel sideways, as it does without Alt.
+    const dx = event.shiftKey && event.deltaX === 0 ? event.deltaY : event.deltaX;
+    const dy = event.shiftKey && event.deltaX === 0 ? 0 : event.deltaY;
+    const vertical = Math.abs(dy) >= Math.abs(dx);
+    const target = scrollableAt(event.target, vertical);
     if (!target) return;
     event.preventDefault();
     event.stopPropagation();
-    stop?.();
-    const { element, flipX, flipY } = target;
-    let lastX = event.clientX;
-    let lastY = event.clientY;
-    let moved = 0;
-    const cursor = document.body.style.cursor;
-    document.body.style.cursor = "grabbing";
-    const move: DomPointerListener = (next) => {
-      const dx = next.clientX - lastX;
-      const dy = next.clientY - lastY;
-      lastX = next.clientX;
-      lastY = next.clientY;
-      moved += Math.abs(dx) + Math.abs(dy);
-      element.scrollLeft += dx * DRAG_SCROLL_SPEED * (flipX ? -1 : 1);
-      element.scrollTop += dy * DRAG_SCROLL_SPEED * (flipY ? -1 : 1);
-      next.preventDefault();
-    };
-    // A drag must not also click what it started on.
-    const swallowClick: DomPointerListener = (click) => {
-      click.preventDefault();
-      click.stopPropagation();
-    };
-    const up: DomPointerListener = () => {
-      stop?.();
-      if (moved < DRAG_THRESHOLD) return;
-      window.addEventListener("click", swallowClick, true);
-      window.setTimeout(() => window.removeEventListener("click", swallowClick, true), 0);
-    };
-    stop = () => {
-      window.removeEventListener("pointermove", move, true);
-      window.removeEventListener("pointerup", up, true);
-      window.removeEventListener("pointercancel", up, true);
-      document.body.style.cursor = cursor;
-      stop = null;
-    };
-    window.addEventListener("pointermove", move, true);
-    window.addEventListener("pointerup", up, true);
-    window.addEventListener("pointercancel", up, true);
+    const { element, flip } = target;
+    const unit =
+      event.deltaMode === 1 ? LINE_PIXELS : event.deltaMode === 2 ? (vertical ? element.clientHeight : element.clientWidth) : 1;
+    const delta = (vertical ? dy : dx) * unit * WHEEL_SCROLL_SPEED * (flip ? -1 : 1);
+    if (vertical) element.scrollTop += delta;
+    else element.scrollLeft += delta;
   };
-  window.addEventListener("pointerdown", down, true);
-  return () => {
-    window.removeEventListener("pointerdown", down, true);
-    stop?.();
-  };
+  window.addEventListener("wheel", wheel, { capture: true, passive: false });
+  return () => window.removeEventListener("wheel", wheel, true);
 }

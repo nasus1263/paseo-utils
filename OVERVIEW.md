@@ -18,4 +18,4 @@ Paseo has no API for the active tab, so the plugin reads the tab bar. With split
 
 ## Fast scrolling
 
-Hold Alt and drag with the left mouse button to scroll the area under the pointer at five times the pointer's movement, in the direction of the drag. It works on any scrollable area, including chat timelines, files, and terminals, in the desktop and browser apps. A drag does not click what it started on.
+Hold Alt while turning the mouse wheel to scroll the area under the pointer five times as far as usual. It works on any scrollable area, including the workspace list, chat timelines, files, and terminals, in the desktop and browser apps. Add Shift to scroll sideways.
