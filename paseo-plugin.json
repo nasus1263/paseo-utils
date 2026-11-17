@@ -1,6 +1,7 @@
 {
   "id": "paseo-utils",
   "name": "Paseo Utils",
+  "description": "Keyboard shortcuts to open a terminal, reveal a file, copy file paths with line numbers, and scroll fast.",
   "media": [],
   "requirements": {
     "paseo": ">=0.16.0-beta.2"
